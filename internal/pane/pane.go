@@ -1,8 +1,10 @@
 package pane
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -312,8 +314,33 @@ type DirLoadErrorMsg struct {
 	PaneID int
 }
 
+func listDrives() ([]FileEntry, error) {
+	var entries []FileEntry
+	for c := 'A'; c <= 'Z'; c++ {
+		root := fmt.Sprintf("%c:\\", c)
+		if _, err := os.Stat(root); err == nil {
+			entries = append(entries, FileEntry{
+				Name:  root,
+				IsDir: true,
+			})
+		}
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no drives found")
+	}
+	return entries, nil
+}
+
 func LoadDir(id int, dir string) tea.Cmd {
 	return func() tea.Msg {
+		if dir == "" && runtime.GOOS == "windows" {
+			entries, err := listDrives()
+			if err != nil {
+				return DirLoadErrorMsg{Err: err, PaneID: id}
+			}
+			return DirLoadedMsg{Entries: entries, Path: "", PaneID: id}
+		}
+
 		dirEntries, err := os.ReadDir(dir)
 		if err != nil {
 			return DirLoadErrorMsg{Err: err, PaneID: id}
@@ -324,6 +351,12 @@ func LoadDir(id int, dir string) tea.Cmd {
 		absDir, _ := filepath.Abs(dir)
 		parent := filepath.Dir(absDir)
 		if parent != absDir {
+			entries = append(entries, FileEntry{
+				Name:  "..",
+				IsDir: true,
+			})
+		} else if runtime.GOOS == "windows" {
+			// At drive root, ".." goes to drive list
 			entries = append(entries, FileEntry{
 				Name:  "..",
 				IsDir: true,

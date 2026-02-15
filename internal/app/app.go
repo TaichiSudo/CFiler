@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"cfiler/internal/bookmark"
@@ -214,8 +215,14 @@ func (a App) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if entry, ok := active.SelectedEntry(); ok {
 			if entry.IsDir {
 				var newDir string
-				if entry.Name == ".." {
+				if active.Dir() == "" {
+					// Drive list: entry.Name is "C:\" etc.
+					newDir = entry.Name
+				} else if entry.Name == ".." {
 					newDir = filepath.Dir(active.Dir())
+					if newDir == active.Dir() && runtime.GOOS == "windows" {
+						newDir = "" // go to drive list
+					}
 				} else {
 					newDir = filepath.Join(active.Dir(), entry.Name)
 				}
@@ -229,9 +236,15 @@ func (a App) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, keys.Back):
-		newDir := filepath.Dir(active.Dir())
-		if newDir != active.Dir() {
-			cmds = append(cmds, pane.LoadDir(active.ID(), newDir))
+		if active.Dir() == "" {
+			// Already at drive list, do nothing
+		} else {
+			newDir := filepath.Dir(active.Dir())
+			if newDir != active.Dir() {
+				cmds = append(cmds, pane.LoadDir(active.ID(), newDir))
+			} else if runtime.GOOS == "windows" {
+				cmds = append(cmds, pane.LoadDir(active.ID(), ""))
+			}
 		}
 
 	case key.Matches(msg, keys.Tab):

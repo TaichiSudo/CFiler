@@ -21,7 +21,11 @@ func (m Model) View(active bool) string {
 	var lines []string
 
 	// Header: directory path
-	header := padOrTruncate(m.dir, innerWidth)
+	dir := m.dir
+	if dir == "" {
+		dir = "Drives"
+	}
+	header := padOrTruncate(dir, innerWidth)
 	headerSt := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7aa2f7")).
 		Bold(true)
