@@ -32,6 +32,7 @@ The root `App` model (`internal/app/app.go`) operates in distinct modes that con
 - `statusbar.Model` for status display
 - `dialog.Dialog` interface (confirm/input dialogs)
 - `bookmark.Model` for bookmark management
+- `session` package (no Model) for session state persistence
 
 ### Message Flow
 
@@ -43,7 +44,7 @@ Copy/move uses an internal clipboard (`clipboard []string` + `clipAction`) rathe
 
 ### Package Layout
 
-All code lives under `internal/` (not importable externally). Each feature has its own package: `app`, `pane`, `preview`, `statusbar`, `dialog`, `bookmark`, `fileops`, `config`.
+All code lives under `internal/` (not importable externally). Each feature has its own package: `app`, `pane`, `preview`, `statusbar`, `dialog`, `bookmark`, `fileops`, `config`, `session`.
 
 ## Key Conventions
 
@@ -53,3 +54,24 @@ All code lives under `internal/` (not importable externally). Each feature has i
 - Styling uses Tokyo Night color scheme, defined in `internal/app/styles.go`
 - Platform-specific behavior (file open) is in `fileops/open.go` using `runtime.GOOS`
 - Bookmark data persists as JSON in the OS-appropriate config directory (resolved by `config.ConfigDir()`)
+- Session state (pane dirs, active pane, cursor positions) persists as `session.json` in the same config directory, loaded on startup and saved on quit/tab-switch/dir-load
+
+## Implementation History
+
+### Session State Persistence (2026-03-03)
+
+起動時に前回のディレクトリ・アクティブペイン・カーソル位置を復元する機能を追加。
+
+**新規ファイル**
+- `internal/session/session.go` — `State` 構造体と `Load()`/`Save()` 関数。`bookmark` パッケージと同じ永続化パターンを踏襲し `{ConfigDir}/session.json` に保存。ファイル未存在時は `nil, nil` を返す。
+
+**変更ファイル**
+- `internal/pane/pane.go` — `SetCursor(n int)` メソッドを追加。`SetEntries()` はカーソルを 0 にリセットするため、初期ロード後にカーソルを復元するために必要。
+- `internal/app/app.go`
+  - `App` 構造体に `initCursor [2]int` フィールドを追加（-1 = 復元不要）
+  - `New()` でセッションをロードし、前回の左右ディレクトリ・アクティブペイン・カーソル位置を初期値として使用
+  - `resolveStartDirs()` ヘルパー追加：保存パスが存在しない場合は cwd にフォールバック。空文字列は Windows のドライブ一覧として有効扱い
+  - `saveSession()` ヘルパーメソッド追加
+  - `DirLoadedMsg` ハンドラ：エントリセット後に `initCursor` を適用し `saveSession()` を呼ぶ
+  - Quit キー：`tea.Quit` 前に `saveSession()`
+  - Tab キー：ペイン切替後に `saveSession()`

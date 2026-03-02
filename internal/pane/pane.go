@@ -73,10 +73,17 @@ func (m *Model) SetDir(dir string) {
 	m.dir = dir
 }
 
+func (m *Model) SetCursor(n int) {
+	m.cursor = n
+	m.clampCursor()
+}
+
 func (m *Model) SetEntries(entries []FileEntry) {
 	m.entries = entries
 	m.err = nil
 	m.marked = nil
+	m.cursor = 0
+	m.offset = 0
 	m.clampCursor()
 }
 

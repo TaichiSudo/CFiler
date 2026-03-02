@@ -12,6 +12,7 @@ import (
 	"cfiler/internal/fileops"
 	"cfiler/internal/pane"
 	"cfiler/internal/preview"
+	"cfiler/internal/session"
 	"cfiler/internal/statusbar"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -55,12 +56,19 @@ type App struct {
 	width              int
 	height             int
 	ready              bool
+	initCursor         [2]int // cursor positions to restore after initial dir load; -1 = no restore
 }
 
 func New() App {
-	startDir, err := os.Getwd()
-	if err != nil {
-		startDir, _ = os.UserHomeDir()
+	state, _ := session.Load()
+	leftDir, rightDir := resolveStartDirs(state)
+
+	activePane := 0
+	initCursor := [2]int{-1, -1}
+	if state != nil {
+		activePane = state.ActivePane
+		initCursor[0] = state.LeftCursor
+		initCursor[1] = state.RightCursor
 	}
 
 	si := textinput.New()
@@ -68,13 +76,44 @@ func New() App {
 	si.CharLimit = 256
 
 	return App{
-		leftPane:    pane.New(0, startDir),
-		rightPane:   pane.New(1, startDir),
-		activePane:  0,
+		leftPane:    pane.New(0, leftDir),
+		rightPane:   pane.New(1, rightDir),
+		activePane:  activePane,
 		preview:     preview.New(),
 		statusBar:   statusbar.New(),
 		searchInput: si,
+		initCursor:  initCursor,
 	}
+}
+
+func resolveStartDirs(state *session.State) (left, right string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd, _ = os.UserHomeDir()
+	}
+
+	validDir := func(dir string) bool {
+		if dir == "" && runtime.GOOS == "windows" {
+			return true // drive list is valid
+		}
+		if dir == "" {
+			return false
+		}
+		info, err := os.Stat(dir)
+		return err == nil && info.IsDir()
+	}
+
+	left = cwd
+	right = cwd
+	if state != nil {
+		if validDir(state.LeftDir) {
+			left = state.LeftDir
+		}
+		if validDir(state.RightDir) {
+			right = state.RightDir
+		}
+	}
+	return left, right
 }
 
 func (a App) Init() tea.Cmd {
@@ -99,10 +138,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.PaneID == 0 {
 			a.leftPane.SetDir(msg.Path)
 			a.leftPane.SetEntries(msg.Entries)
+			if a.initCursor[0] >= 0 {
+				a.leftPane.SetCursor(a.initCursor[0])
+				a.initCursor[0] = -1
+			}
 		} else {
 			a.rightPane.SetDir(msg.Path)
 			a.rightPane.SetEntries(msg.Entries)
+			if a.initCursor[1] >= 0 {
+				a.rightPane.SetCursor(a.initCursor[1])
+				a.initCursor[1] = -1
+			}
 		}
+		a.saveSession()
 		cmds = append(cmds, a.loadPreviewCmd())
 		return a, tea.Batch(cmds...)
 
@@ -185,6 +233,7 @@ func (a App) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, keys.Quit):
+		a.saveSession()
 		return a, tea.Quit
 
 	case key.Matches(msg, keys.Up):
@@ -253,6 +302,7 @@ func (a App) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			a.activePane = 0
 		}
+		a.saveSession()
 		cmds = append(cmds, a.loadPreviewCmd())
 
 	case key.Matches(msg, keys.Toggle):
@@ -511,6 +561,16 @@ func (a *App) handleDialogResult(msg dialog.ResultMsg) tea.Cmd {
 		return pane.LoadDir(paneID, dir)
 	}
 	return nil
+}
+
+func (a *App) saveSession() {
+	_ = session.Save(session.State{
+		LeftDir:     a.leftPane.Dir(),
+		RightDir:    a.rightPane.Dir(),
+		ActivePane:  a.activePane,
+		LeftCursor:  a.leftPane.Cursor(),
+		RightCursor: a.rightPane.Cursor(),
+	})
 }
 
 func (a *App) getActivePane() *pane.Model {
