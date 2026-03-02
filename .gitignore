@@ -4,6 +4,8 @@
 *.dll
 *.so
 *.dylib
+cfiler-linux-*
+cfiler-darwin-*
 
 # OS artifacts
 nul
